@@ -16,3 +16,17 @@ Usage:
 
 ```
 
+### Example 
+```
+$ echo 192.30.253.113 | python whoisabuse.py add
+IPs added (1, 1) Bad IPs: 0
+
+$ python whoisabuse.py process
+Processing 192.30.253.113
+Exhausted queryable IPs
+Processing finished. Requests: 1 Replies: 0 instant, 1 by whoiser
+
+$ python whoisabuse.py dump
+192.30.253.113 hostmaster@github.com
+
+```
