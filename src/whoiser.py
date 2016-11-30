@@ -14,13 +14,7 @@ import urllib.request
 #	proxy_auth_handler.add_password('realm', 'host', 'username', 'password')
 #	opener = urllib2.build_opener(proxy_handler, proxy_auth_handler)
 
-
-#TODO
-proxies = [
-	
-	False,
-	False
-]
+from config import proxies
 
 thread_to_id = {}
 
