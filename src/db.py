@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS "networks" (
 CREATE TABLE IF NOT EXISTS "ips" (
 	`ip`	INTEGER NOT NULL UNIQUE,
 	`networkid`	INTEGER,
+	`failurereason`	TEXT,
 	PRIMARY KEY(`ip`)
 );
 CREATE TABLE IF NOT EXISTS "abuse_emails" (
@@ -38,15 +39,21 @@ cur = conn.cursor()
 
 def network_from_ip(ip):
 	ip = int( netaddr.IPAddress(ip) )
-	query = conn.execute("""SELECT networkid FROM networks WHERE startip <= ? AND endip >= ? LIMIT 2""",(ip,ip,))
+	q = conn.execute("""SELECT networkid,startip,endip FROM networks WHERE ? >= startip AND ? <= endip ORDER BY startip""",(ip,ip,))
 	
-	r = query.fetchone()
-	if not r:
-		return
-	
-	assert(not query.fetchone())
-	
-	return r['networkid']
+	#TODO: Find better way
+	smallest=q.fetchone()
+	i=0
+	for network in q:
+		i=i+1
+		(snetworkid,sstartip,sendip,) = smallest
+		(networkid,startip,endip,) = network
+		if abs(endip-startip)<abs(sendip-sstartip):
+			smallest = network
+	assert(i<10)
+	if smallest:
+		(networkid,*a) = smallest
+		return networkid
 
 def addips(ips):
 	
@@ -59,23 +66,57 @@ def addips(ips):
 	conn.commit()
 	return (cur.rowcount,len(iplist))
 
+def get_network(startip,endip):
+	networkid = network_from_ip(startip) or (startip!=endip and network_from_ip(endip))
+	if networkid:
+		return networkid
 
-def ip_setfail(ips):
+	cur.execute("INSERT INTO networks('startip','endip') values (?,?)", (int(startip),int(endip), ) )
+	conn.commit()
+	networkid = cur.lastrowid
+	#print(network_from_ip(startip),networkid)
+	assert(networkid==network_from_ip(startip))
+	
+	return networkid
+	
+def add_network_abusemails(networkid,abuseemails):
+	
+	assert(networkid>0)
+	
+	l = len(abuseemails)
+	cur.execute("INSERT OR IGNORE INTO abuse_emails(networkid,e1,e2,e3) values (?,?,?,?)",
+		(
+			networkid,
+			l>0 and abuseemails[0] or None,
+			l>1 and abuseemails[1] or None,
+			l>2 and abuseemails[2] or None,
+		)
+	)
+	conn.commit()
+	
+
+# False == Failure == -1
+def ip_set_network(ips,networkid=-1):
 	
 	ips = type(ips) is list and ips or [ips]
 	
-	iplist=[]
+	updatelist=[]
 	for ip in ips:
-		tupl = (int(netaddr.IPAddress(ip)), )
-		iplist.append( tupl )
-	
-	cur.executemany("UPDATE ips SET networkid=-1 WHERE ip=? AND networkid IS NULL",iplist)
+		updatelist.append( ( 
+			networkid or -1,
+			int(netaddr.IPAddress(ip))   ) )
+	cur.executemany("UPDATE ips SET networkid=? WHERE ip=? AND (networkid IS NULL or networkid=-1)",updatelist)
 	conn.commit()
-	return (cur.rowcount,len(iplist))
+	return ( cur.rowcount,len(updatelist) )
 
-def get_unprocessed():
+def get_unprocessed(random_order=False):
+	if random_order:
+		return conn.execute("""SELECT ip FROM ips WHERE networkid IS NULL ORDER BY RANDOM()""")
+		
 	return conn.execute("""SELECT ip FROM ips WHERE networkid IS NULL""")
 
+def clear_failed_ips():
+	return conn.execute("""UPDATE ips SET networkid=NULL WHERE networkid=-1""")
 
 
 def dump_all():

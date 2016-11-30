@@ -4,13 +4,27 @@ from queue import Queue
 import time
 from ipwhois import IPWhois
 import netaddr
+import pprint
+import urllib
+import urllib.request
 
-SIZE = 2
+#def genproxy(url,)
+#	proxy_handler = urllib2.ProxyHandler({'http': 'http://45.62.228.192:8889'})
+#	proxy_auth_handler = urllib2.HTTPBasicAuthHandler()
+#	proxy_auth_handler.add_password('realm', 'host', 'username', 'password')
+#	opener = urllib2.build_opener(proxy_handler, proxy_auth_handler)
+
 
 #TODO
-proxies=[
-	["127.0.0.1:1234"],
+proxies = [
+	
+	False,
+	False
 ]
+
+thread_to_id = {}
+
+SIZE = len(proxies)
 
 # Synchronized map?
 next_query=[
@@ -30,32 +44,50 @@ def dprint(*args, **kwargs):
 	with printlock:
 		print(*args, **kwargs)
 
-def whoiser(task):
+
+def whoiser(item,proxyid):
+
+	ip = netaddr.IPAddress(item['ip'])
+	dprint("Processing",str(ip))
+	
+	proxy = proxies[proxyid]
+	if not proxy:
+		proxy=None
+		
+	whois = IPWhois( str(ip), proxy_opener = proxy, allow_permutations= True )
+	if item.get('legacy'):
+		response = whois.lookup_whois(inc_raw = True,get_referral=True, retry_count=1) 
+	else:
+		response = whois.lookup_rdap(retry_count=1,depth=4,)
+
+	return (response,)
+	
+		
+def whoiser_wrap(task,myid):
 	
 	(item,) = task
 	
+	proxyn = thread_to_id[myid]
 	
 	try:
-		ip = netaddr.IPAddress(item['ip'])
-		dprint("Processing",str(ip))
-		
-		whois = IPWhois( str(ip), proxy_opener = None, allow_permutations= True )
-		response = item.get('legacy') and whois.lookup_whois(inc_raw = True,get_referral=True, retry_count=1) or whois.lookup_rdap(retry_count=1,depth=4,)
-		return (item,response,)
-		
+		ret = (item,)+whoiser(item,proxyn)
+		return ret
 	except Exception as e:
-		dprint("Whois failed for",str(ip),e)
+		dprint("Whois failed for",task,e)
 		return (item,False,e,)
 
 	
 def worker_thread():
+	
+	myid = threading.current_thread().ident
+	
 	while True:
 		task = q.get()
 		q.task_done()
         
 		if task is None:
 			break
-		response = whoiser(task)
+		response = whoiser_wrap(task,myid)
 		responses.put(response)
 
 	dprint("Worker stopping...")
@@ -67,7 +99,11 @@ def start():
 		workers.append(t)
 		t.daemon = True  
 		t.start()
-
+		
+		id = t.ident
+		assert(id)
+		thread_to_id[id] = i
+	
 def stop():
 	for i in range(SIZE):
 		q.put( False, True )
