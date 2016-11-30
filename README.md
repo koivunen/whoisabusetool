@@ -1,6 +1,8 @@
 # whoisabusetool
 Processes list of IPs and tries to figure out abuse email(s) for them
 
+Done as part of a research project for [University of Turku](http://utu.fi)
+
 Work In Progress
 
 ```
