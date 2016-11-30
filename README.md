@@ -30,3 +30,9 @@ $ python whoisabuse.py dump
 192.30.253.113 hostmaster@github.com
 
 ```
+
+### Dependencies
+```
+pip install --upgrade ipwhois
+pip install netaddr
+```
