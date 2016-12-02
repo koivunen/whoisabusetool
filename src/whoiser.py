@@ -14,7 +14,9 @@ import urllib.request
 #	proxy_auth_handler.add_password('realm', 'host', 'username', 'password')
 #	opener = urllib2.build_opener(proxy_handler, proxy_auth_handler)
 
+import config
 from config import proxies
+config.test_proxies()
 
 thread_to_id = {}
 
@@ -42,10 +44,12 @@ def dprint(*args, **kwargs):
 def whoiser(item,proxyid):
 
 	ip = netaddr.IPAddress(item['ip'])
-	dprint("Processing",str(ip))
+	#dprint("Processing",str(ip))
 	
 	proxy = proxies[proxyid]
-	if not proxy:
+	if proxy and proxy != '':
+		proxy = urllib.request.ProxyHandler( {'http': proxy , 'https': proxy } )
+	else:
 		proxy=None
 		
 	whois = IPWhois( str(ip), proxy_opener = proxy, allow_permutations= True )

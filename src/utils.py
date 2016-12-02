@@ -7,7 +7,6 @@ import re
 import netaddr
 import pprint
 import db
-import whoiser
 
 printp = pprint.PrettyPrinter(indent=4)
 

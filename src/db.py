@@ -11,24 +11,32 @@ def commit():
 
 conn.executescript('''
 
-CREATE TABLE IF NOT EXISTS "networks" (
-	`networkid`	INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT UNIQUE,
-	`startip`	INTEGER NOT NULL CHECK(startip<=endip) UNIQUE,
-	`endip`	INTEGER NOT NULL CHECK(endip>=startip) UNIQUE
-);
 
 CREATE TABLE IF NOT EXISTS "ips" (
-	`ip`	INTEGER NOT NULL UNIQUE,
-	`networkid`	INTEGER,
+	`ip`			INTEGER NOT NULL UNIQUE  CHECK(ip>0 and ip < 4294967295),
+	`networkid`		INTEGER,
+	`lookuptype`	INTEGER, -- CHECK(lookuptype >= 0 AND lookuptype <= 3),
 	`failurereason`	TEXT,
 	PRIMARY KEY(`ip`)
 );
+
+CREATE TABLE IF NOT EXISTS "networks" (
+	`networkid`		INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT UNIQUE,
+	`startip`		INTEGER NOT NULL CHECK(startip<=endip and startip>0 and endip < 4294967295 and startip>0 and endip < 4294967295),
+	`endip`			INTEGER NOT NULL CHECK(endip>=startip and startip>0 and endip < 4294967295 and startip>0 and endip < 4294967295),
+	`origin_ip`	INTEGER NOT NULL UNIQUE CHECK(origin_ip>0 and origin_ip < 4294967295),
+	UNIQUE(`startip`,`endip`)
+);
+
 CREATE TABLE IF NOT EXISTS "abuse_emails" (
 	`networkid`	INTEGER NOT NULL,
 	`e1`	TEXT,
 	`e2`	TEXT,
 	`e3`	TEXT,
-	PRIMARY KEY(`networkid`), -- this makes no sense, but it's too late to turn back now
+	`e1_quality`	INTEGER,
+	`e2_quality`	INTEGER,
+	`e3_quality`	INTEGER,
+	PRIMARY KEY(`networkid`),
 	FOREIGN KEY(`networkid`) REFERENCES networks
 );
 
@@ -39,6 +47,7 @@ cur = conn.cursor()
 
 def network_from_ip(ip):
 	ip = int( netaddr.IPAddress(ip) )
+	
 	q = conn.execute("""SELECT networkid,startip,endip FROM networks WHERE ? >= startip AND ? <= endip ORDER BY startip""",(ip,ip,))
 	
 	#TODO: Find better way
@@ -66,12 +75,15 @@ def addips(ips):
 	conn.commit()
 	return (cur.rowcount,len(iplist))
 
-def get_network(startip,endip):
+def get_network(startip,endip,origin_ip=None):
+	
 	networkid = network_from_ip(startip) or (startip!=endip and network_from_ip(endip))
 	if networkid:
 		return networkid
-
-	cur.execute("INSERT INTO networks('startip','endip') values (?,?)", (int(startip),int(endip), ) )
+	if origin_ip:
+		origin_ip = int(origin_ip)
+		
+	cur.execute("INSERT INTO networks('startip','endip','origin_ip') values (?,?,?)", (int(startip),int(endip),origin_ip, ) )
 	conn.commit()
 	networkid = cur.lastrowid
 	#print(network_from_ip(startip),networkid)
@@ -79,24 +91,32 @@ def get_network(startip,endip):
 	
 	return networkid
 	
-def add_network_abusemails(networkid,abuseemails):
+def add_network_abusemails(networkid,abuseemails,quality=None):
 	
 	assert(networkid>0)
 	
-	l = len(abuseemails)
-	cur.execute("INSERT OR IGNORE INTO abuse_emails(networkid,e1,e2,e3) values (?,?,?,?)",
+	#TODO: Normalize...
+	
+	e1         = len(abuseemails)>0 and abuseemails[0]
+	e2         = len(abuseemails)>1 and abuseemails[1]
+	e3         = len(abuseemails)>2 and abuseemails[2]
+	
+	cur.execute("INSERT OR IGNORE INTO abuse_emails(networkid,e1,e2,e3,e1_quality,e2_quality,e3_quality) values (?,?,?,?,?,?,?)",
 		(
 			networkid,
-			l>0 and abuseemails[0] or None,
-			l>1 and abuseemails[1] or None,
-			l>2 and abuseemails[2] or None,
+			e1 or None,
+			e2 or None,
+			e3 or None,
+			quality and e1 and quality[0] or None,
+			quality and e2 and quality[1] or None,
+			quality and e3 and quality[2] or None
 		)
 	)
 	conn.commit()
 	
 
 # False == Failure == -1
-def ip_set_network(ips,networkid=-1):
+def ip_set_network(ips,networkid=-1,failurereason=None):
 	
 	ips = type(ips) is list and ips or [ips]
 	
@@ -104,8 +124,9 @@ def ip_set_network(ips,networkid=-1):
 	for ip in ips:
 		updatelist.append( ( 
 			networkid or -1,
+			failurereason,
 			int(netaddr.IPAddress(ip))   ) )
-	cur.executemany("UPDATE ips SET networkid=? WHERE ip=? AND (networkid IS NULL or networkid=-1)",updatelist)
+	cur.executemany("UPDATE ips SET networkid=?,failurereason=? WHERE ip=? AND (networkid IS NULL or networkid=-1)",updatelist)
 	conn.commit()
 	return ( cur.rowcount,len(updatelist) )
 
@@ -115,8 +136,19 @@ def get_unprocessed(random_order=False):
 		
 	return conn.execute("""SELECT ip FROM ips WHERE networkid IS NULL""")
 
+def network_has_mails_processed(networkid):
+	res = conn.execute("""SELECT e1 FROM abuse_emails WHERE networkid = ? LIMIT 1""",(networkid,))
+	if not res:
+		return False
+	res = res.fetchone()
+	if not res:
+		return False
+	(e1,) = res
+	if e1 is None:
+		return False
+	
 def clear_failed_ips():
-	return conn.execute("""UPDATE ips SET networkid=NULL WHERE networkid=-1""")
+	return conn.execute("""UPDATE ips SET networkid=NULL,failurereason=NULL WHERE networkid=-1""")
 
 
 def dump_all():
