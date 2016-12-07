@@ -55,7 +55,8 @@ def whoiser(item,proxyid):
 		if item.get('legacy'):
 			response = whois.lookup_whois(inc_raw = True,get_referral=True)  #, retry_count=3
 		else:
-			response = whois.lookup_rdap(inc_raw = True) # bootstrap=True, depth=4,, retry_count=3
+			#depth means how deep to parse entities in the raw reply.
+			response = whois.lookup_rdap(inc_raw = True,depth=10) #  , retry_count=3
 	except ipwhois.exceptions.HTTPRateLimitError as e:
 		dprint("RATELIMIT?",str(ip),whois.net.address_str)
 		return True
