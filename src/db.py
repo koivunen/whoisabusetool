@@ -4,8 +4,26 @@ import sys
 import sqlite3
 import re
 import netaddr
-			
-conn = sqlite3.connect('state.db',detect_types=sqlite3.PARSE_DECLTYPES)
+import utils
+from utils import *
+
+def IP2BLOB(ip):
+	ip = int(IP(ip).ipv6())
+	return sqlite3.Binary( ip.to_bytes(128,byteorder='big') )
+	
+def BLOB2IP(blob):
+	return IP(int.from_bytes(blob,byteorder='big'))
+
+def ipaddr2sqlite(ip):
+	ip = int(ip.ipv6())
+	return sqlite3.Binary( ip.to_bytes(128,byteorder='big') )
+
+sqlite3.register_adapter(netaddr.IPAddress,ipaddr2sqlite)
+
+sqlite3.register_converter("blobip", BLOB2IP)
+
+conn = sqlite3.connect(__name__ == "__main__" and ":memory:" or 'state.db',detect_types=sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES)
+
 def commit():
 	conn.commit()
 
@@ -13,18 +31,18 @@ conn.executescript('''
 
 
 CREATE TABLE IF NOT EXISTS "ips" (
-	`ip`			INTEGER NOT NULL UNIQUE  CHECK(ip>0 and ip < 4294967295),
+	`ip`			blobip NOT NULL UNIQUE,
 	`networkid`		INTEGER,
-	`lookuptype`	INTEGER, -- CHECK(lookuptype >= 0 AND lookuptype <= 3),
+	`lookuptype`	INTEGER,
 	`failurereason`	TEXT,
 	PRIMARY KEY(`ip`)
 );
 
 CREATE TABLE IF NOT EXISTS "networks" (
 	`networkid`		INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT UNIQUE,
-	`startip`		INTEGER NOT NULL CHECK(startip<=endip and startip>0 and endip < 4294967295 and startip>0 and endip < 4294967295),
-	`endip`			INTEGER NOT NULL CHECK(endip>=startip and startip>0 and endip < 4294967295 and startip>0 and endip < 4294967295),
-	`origin_ip`	INTEGER NOT NULL UNIQUE CHECK(origin_ip>0 and origin_ip < 4294967295),
+	`startip`		blobip NOT NULL,
+	`endip`			blobip NOT NULL,
+	`origin_ip`	blobip NOT NULL,
 	UNIQUE(`startip`,`endip`)
 );
 
@@ -41,12 +59,13 @@ CREATE TABLE IF NOT EXISTS "abuse_emails" (
 );
 
 ''')
-conn.commit()
 
+conn.commit()
 cur = conn.cursor()
 
+
 def network_from_ip(ip):
-	ip = int( netaddr.IPAddress(ip) )
+	ip = IP(ip)
 	
 	q = conn.execute("""SELECT networkid,startip,endip FROM networks WHERE ? >= startip AND ? <= endip ORDER BY startip""",(ip,ip,))
 	
@@ -57,7 +76,7 @@ def network_from_ip(ip):
 		i=i+1
 		(snetworkid,sstartip,sendip,) = smallest
 		(networkid,startip,endip,) = network
-		if abs(endip-startip)<abs(sendip-sstartip):
+		if abs(int(endip)-int(startip))<abs(int(sendip)-int(sstartip)):
 			smallest = network
 	assert(i<10)
 	if smallest:
@@ -68,22 +87,23 @@ def addips(ips):
 	
 	iplist=[]
 	for ip in ips:
-		tupl = (int(netaddr.IPAddress(ip)), )
-		iplist.append( tupl )
+		iplist.append( (IP(ip), ) )
 	
 	cur.executemany("INSERT OR IGNORE INTO ips('ip') values (?)",iplist)
 	conn.commit()
 	return (cur.rowcount,len(iplist))
 
 def get_network(startip,endip,origin_ip=None):
-	
+	startip = IP(startip)
+	endip = IP(endip)
+	if origin_ip:
+		origin_ip = IP(origin_ip)
+		
 	networkid = network_from_ip(startip) or (startip!=endip and network_from_ip(endip))
 	if networkid:
 		return networkid
-	if origin_ip:
-		origin_ip = int(origin_ip)
-		
-	cur.execute("INSERT INTO networks('startip','endip','origin_ip') values (?,?,?)", (int(startip),int(endip),origin_ip, ) )
+
+	cur.execute("INSERT INTO networks('startip','endip','origin_ip') values (?,?,?)", (startip,endip,origin_ip, ) )
 	conn.commit()
 	networkid = cur.lastrowid
 	#print(network_from_ip(startip),networkid)
@@ -122,10 +142,10 @@ def ip_set_network(ips,networkid=-1,failurereason=None):
 	
 	updatelist=[]
 	for ip in ips:
-		updatelist.append( ( 
-			networkid or -1,
-			failurereason,
-			int(netaddr.IPAddress(ip))   ) )
+		updatelist.append((	networkid or -1,
+							failurereason,
+							IP(ip),  			))
+			
 	cur.executemany("UPDATE ips SET networkid=?,failurereason=? WHERE ip=? AND (networkid IS NULL or networkid=-1)",updatelist)
 	conn.commit()
 	return ( cur.rowcount,len(updatelist) )
@@ -160,3 +180,10 @@ def dump_all():
 			LEFT JOIN abuse_emails
 				ON networks.networkid=abuse_emails.networkid
 	""")
+
+if __name__ == "__main__":
+	print(addips(extract_ips("""
+has address 88.114.107.102
+IPv6 address 2001:470:27:1aa::2
+""")))
+	printp(dump_all.fetchall())

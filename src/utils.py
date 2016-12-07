@@ -6,8 +6,39 @@ import sqlite3
 import re
 import netaddr
 import pprint
-import db
+import traceback
 
+def IP(var):
+	if isinstance(var,str):
+		return netaddr.IPAddress(var).ipv6()
+	elif isinstance(var,int):
+		return netaddr.IPAddress(var,version=6)
+	return netaddr.IPAddress(var)
+
+def FormatShortError(exc):
+	return "".join(traceback.format_exception(None, exc, exc.__traceback__,chain=False,limit=4))
+		
+def IsPublicIP(ip):
+	bad = False
+	
+	if ip.is_ipv4_mapped():
+		ip4 = ip.ipv4()
+		
+		bad = ip4.is_multicast() or   \
+				ip4.is_private()   or \
+				ip4.is_reserved()  or \
+				ip4.is_loopback()  or \
+				ip4.is_hostmask()  or \
+				ip4.is_netmask() or not ip.is_unicast()
+	else:
+		bad = ip.is_multicast() or   \
+			ip.is_private()   or \
+			ip.is_reserved()  or \
+			ip.is_loopback()  or \
+			ip.is_hostmask()  or \
+			ip.is_netmask() or not ip.is_unicast()
+	return not bad
+		
 printp = pprint.PrettyPrinter(indent=4)
 
 class safelist(list):
@@ -17,13 +48,15 @@ class safelist(list):
         except IndexError:
             return default
 
-			
-def extract_ips(data):
-    return re.findall(r"\d{1,3}(?:\.\d{1,3}){3}", data)
+# http://stackoverflow.com/a/17871737
 
-	
-	
-	
+from ipv6re import IPV6ADDR as ipv6_regex
+ipv6_regex = re.compile(ipv6_regex)
+
+def extract_ips(data):
+	a = re.findall(r"\d{1,3}(?:\.\d{1,3}){3}", data)
+	b = ipv6_regex.findall(data)
+	return a+b
 	
 	
 ###################################

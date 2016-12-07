@@ -2,10 +2,12 @@ import threading
 import queue
 from queue import Queue
 import time
+import ipwhois
 from ipwhois import IPWhois
 import netaddr
 import pprint
 import urllib
+from utils import *
 import urllib.request
 
 #def genproxy(url,)
@@ -23,13 +25,9 @@ thread_to_id = {}
 SIZE = len(proxies)
 
 # Synchronized map?
-next_query=[
-	#for each endpoint ip (proxies)
-	{
-		"whois.arin.net": 0,
-		"whois.ripe.net": 0,
-	}
-]
+next_query=[]
+for i in range(SIZE):
+	next_query.append({})
 
 queries_remaining=0
 q = Queue(maxsize=SIZE*2+1)
@@ -43,21 +41,25 @@ def dprint(*args, **kwargs):
 
 def whoiser(item,proxyid):
 
-	ip = netaddr.IPAddress(item['ip'])
-	#dprint("Processing",str(ip))
+	ip = IP(item['ip'])
+	if ip.is_ipv4_mapped():
+		ip = ip.ipv4()
 	
+	limiter = next_query[proxyid]
 	proxy = proxies[proxyid]
-	if proxy and proxy != '':
-		proxy = urllib.request.ProxyHandler( {'http': proxy , 'https': proxy } )
-	else:
-		proxy=None
-		
-	whois = IPWhois( str(ip), proxy_opener = proxy, allow_permutations= True )
-	if item.get('legacy'):
-		response = whois.lookup_whois(inc_raw = True,get_referral=True, retry_count=1) 
-	else:
-		response = whois.lookup_rdap(retry_count=1,depth=4,)
+	
+	proxy = urllib.request.ProxyHandler( {} ) #{'http': proxy , 'https': proxy } )
 
+	whois = IPWhois( str(ip), proxy_opener = proxy, allow_permutations= True )
+	try:
+		if item.get('legacy'):
+			response = whois.lookup_whois(inc_raw = True,get_referral=True)  #, retry_count=3
+		else:
+			response = whois.lookup_rdap(inc_raw = True) # bootstrap=True, depth=4,, retry_count=3
+	except ipwhois.exceptions.HTTPRateLimitError as e:
+		dprint("RATELIMIT?",str(ip),whois.net.address_str)
+		return True
+		
 	return (response,)
 	
 		
@@ -68,11 +70,13 @@ def whoiser_wrap(task,myid):
 	proxyn = thread_to_id[myid]
 	
 	try:
-		ret = (item,)+whoiser(item,proxyn)
-		return ret
+		ret = whoiser(item,proxyn)
+		if ret==True:
+			return (item,True,)
+			
+		return (item,)+ret
 	except Exception as e:
-		dprint("Whois failed for",task,e)
-		return (item,False,e,)
+		return (item,False,e,proxies[proxyn])
 
 	
 def worker_thread():
@@ -101,6 +105,8 @@ def start():
 		id = t.ident
 		assert(id)
 		thread_to_id[id] = i
+	
+	config.monkeypatch_proxies(thread_to_id)
 	
 def stop():
 	for i in range(SIZE):

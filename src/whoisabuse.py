@@ -13,6 +13,7 @@ from multiprocessing import Pool, TimeoutError
 import fileinput
 import csv
 import sys
+import config
 import sqlite3
 import re
 import netaddr
@@ -23,20 +24,20 @@ import time
 from abuseparsing import *
 import traceback
 
+import logging
+logging.basicConfig(filename='debug.log',level=logging.DEBUG)
+
+			
 def addAddresses():
 	
 	ips  = []
 	bads = 0
 	for line in sys.stdin:
 		for ip in extract_ips(line):
-			ip = netaddr.IPAddress(ip)
-			bad = ip.is_multicast() or   \
-					ip.is_private()   or \
-					ip.is_reserved()  or \
-					ip.is_loopback()  or \
-					ip.is_hostmask()  or \
-					ip.is_netmask()
-					
+			ip = IP(ip)
+			
+			bad = not IsPublicIP(ip)
+
 			if bad:
 				if bads<15:
 					sys.stderr.write("Bad IP: "+str(ip)+"\n")
@@ -72,19 +73,26 @@ def continueProcessing():
 		if resp:
 			resp_recv+=1
 			
-			sys.stdout.write("-")
-			sys.stdout.flush()
-			
 			query_legacy = False
 			
 			(req,reply,*rest) = resp
 			
-			ip = netaddr.IPAddress(req['ip'])
+			ip = IP(req['ip'])
 			legacy_reply = req.get('legacy')
 			
-			# We have a response
-			if reply:
+			sys.stdout.write(legacy_reply and '|' or "-")
+			sys.stdout.flush()
 			
+			# We have a response
+			if reply==True:
+				# Push again
+					
+				sys.stdout.write(">")
+				sys.stdout.flush()
+				queries_pending.append(req)
+				
+			elif reply:
+				
 				quality = legacy_reply and 2 or 1
 				(abuseemails,(startip,endip)) = legacy_reply and process_whois_abuse(reply) or process_rdap_abuse(reply)
 				# one IP network is a possibility
@@ -103,13 +111,15 @@ def continueProcessing():
 				query_legacy = True
 				exc = rest[0]
 				store_error = "".join(traceback.format_exception(None, exc, exc.__traceback__))
-				print("failquery",ip,legacy_reply and "(LEGACY)" or "",exc)
+				print("failquery",ip,legacy_reply and "(LEGACY)" or "",FormatShortError(exc),len(rest)>1 and rest[1])
 				
 				db.ip_set_network(ip,failurereason=store_error)
 			
 				
 			if query_legacy and not legacy_reply:
 				print("LEGACY QUERYING",ip)
+				if reply:
+					pprint.pprint(reply)
 				req['legacy'] = True
 				# Add to queries again
 				queries_pending.append(req)
@@ -118,13 +128,12 @@ def continueProcessing():
 			
 			
 		# Get more queries if they do not exist in pending
-		if len(queries_pending)<1:
+		if len(queries_pending)<6:
 			row = unprocessed_ips.fetchone()
 			if row:
 				(ip,) = row
-				ip = netaddr.IPAddress(ip)
+				ip = IP(ip)
 				networkid = db.network_from_ip(ip)
-				req_sent+=1
 				
 				#TODO: Loop if we didn't query stuff
 				if networkid and db.network_has_mails_processed(networkid):
@@ -138,11 +147,13 @@ def continueProcessing():
 				if not exhaust_print:
 					exhaust_print = True
 					print("Exhausted queryable IPs")
-				
+		
+		# Add queries from query queue
 		try:
 			request = queries_pending[0]
 			if whoiser.request( request, timeout=0.01):
 				queries_pending.pop(0)
+				req_sent+=1
 		except IndexError as e:
 			pass
 			
@@ -154,7 +165,10 @@ def dumpAll(processedOnly=False):
 		(ip,e1,e2,e3) = r
 		if not processedOnly or e1 is not None:
 			extra = e1 or "Unprocessed"
-			print( "%s%s" % ( str(netaddr.IPAddress(ip)), extra and (" %s")%(extra) or "" ) )
+			ip = IP(ip)
+			if ip.is_ipv4_mapped():
+				ip = ip.ipv4()
+			print( "%s%s" % ( str(ip), extra and (" %s")%(extra) or "" ) )
 
 			
 cmd=len(sys.argv)>1 and sys.argv[1]
