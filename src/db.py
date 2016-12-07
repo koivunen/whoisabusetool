@@ -9,14 +9,14 @@ from utils import *
 
 def IP2BLOB(ip):
 	ip = int(IP(ip).ipv6())
-	return sqlite3.Binary( ip.to_bytes(128,byteorder='big') )
+	return sqlite3.Binary( ip.to_bytes(16,byteorder='big') )
 	
 def BLOB2IP(blob):
 	return IP(int.from_bytes(blob,byteorder='big'))
 
 def ipaddr2sqlite(ip):
 	ip = int(ip.ipv6())
-	return sqlite3.Binary( ip.to_bytes(128,byteorder='big') )
+	return sqlite3.Binary( ip.to_bytes(16,byteorder='big') )
 
 sqlite3.register_adapter(netaddr.IPAddress,ipaddr2sqlite)
 
@@ -112,21 +112,21 @@ def get_network(startip,endip,origin_ip=None):
 	return networkid
 	
 def add_network_abusemails(networkid,abuseemails,quality=None):
-	
 	assert(networkid>0)
 	
 	#TODO: Normalize...
 	
-	e1         = len(abuseemails)>0 and abuseemails[0]
-	e2         = len(abuseemails)>1 and abuseemails[1]
-	e3         = len(abuseemails)>2 and abuseemails[2]
+	e1         = len(abuseemails)>0 and abuseemails[0] or None
+	e2         = len(abuseemails)>1 and abuseemails[1] or None
+	e3         = len(abuseemails)>2 and abuseemails[2] or None
+	#print("add_network_abusemails",networkid,abuseemails,quality,e1,e2)
 	
-	cur.execute("INSERT OR IGNORE INTO abuse_emails(networkid,e1,e2,e3,e1_quality,e2_quality,e3_quality) values (?,?,?,?,?,?,?)",
+	cur.execute("INSERT OR REPLACE INTO abuse_emails(networkid,e1,e2,e3,e1_quality,e2_quality,e3_quality) values (?,?,?,?,?,?,?)",
 		(
 			networkid,
-			e1 or None,
-			e2 or None,
-			e3 or None,
+			e1,
+			e2,
+			e3,
 			quality and e1 and quality[0] or None,
 			quality and e2 and quality[1] or None,
 			quality and e3 and quality[2] or None
@@ -173,12 +173,21 @@ def clear_failed_ips():
 
 def dump_all():
 	return cur.execute("""
-		SELECT ips.ip as ip, abuse_emails.e1 as e1, abuse_emails.e2 as e2, abuse_emails.e3 as e3 
+		SELECT 
+			ips.ip as ip, 
+			ips.networkid as networkid, 
+			ips.failurereason as failurereason,
+			abuse_emails.e1 			as e1, 
+			abuse_emails.e2 			as e2, 
+			abuse_emails.e3 			as e3, 
+			abuse_emails.e1_quality 	as e1_quality,
+			networks.startip 			as startip,
+			networks.endip 				as endip
 		FROM ips 
 			LEFT JOIN networks 
-				ON ips.networkid=networks.networkid
+				ON ips.networkid		= networks.networkid
 			LEFT JOIN abuse_emails
-				ON networks.networkid=abuse_emails.networkid
+				ON networks.networkid	= abuse_emails.networkid
 	""")
 
 if __name__ == "__main__":
