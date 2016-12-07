@@ -12,6 +12,7 @@ import threading
 
 from pprint import pprint
 proxies = [
+	#'http://127.0.0.1:8888' ,
 	True,
 	True
 ]
@@ -21,6 +22,7 @@ proxies = [
 			
 _tested_proxies = False
 def test_proxies():
+	print("Pretesting proxies...")
 	global _tested_proxies
 	
 	if _tested_proxies:
@@ -35,7 +37,6 @@ def test_proxies():
 		if _tested_proxies.get(proxyid) is not None:
 			return _tested_proxies.get(proxyid)
 
-		print("Pretesting proxy",proxyid)
 		proxy = urllib.request.ProxyHandler( {'http': proxyid , 'https': proxyid } )
 		opener = urllib.request.build_opener(proxy)
 		#urllib.request.install_opener(opener)
@@ -50,7 +51,7 @@ def test_proxies():
 			try:
 				opened = opener.open('http://google.com')
 				if not opened:
-					print("FAIL")
+					print("FAIL Open",proxyid)
 					_tested_proxies[proxyid] = False
 					return False
 				
@@ -68,18 +69,21 @@ def test_proxies():
 
 import re
 def monkeypatch_proxies(thread_to_proxy):
-	
+
 	class socksocket2(socks.socksocket):
 		def __init__(self, family=socket.AF_INET, type=socket.SOCK_STREAM, proto=0, *args, **kwargs):
 			socks.socksocket.__init__(self, family, type, proto, *args, **kwargs)
 			#try:
-			proxyid = thread_to_proxy[threading.current_thread().ident]
+			tid = threading.current_thread().ident
+			proxyid = thread_to_proxy.get(tid)
 			
-			proxy = proxies[proxyid]
+			proxy=False
+			if len(proxies)>proxyid:
+				proxy = proxies[proxyid]
 			
-			#print("Newsocket",proxyid,proxy)
-			
-			if proxy==True:
+			if proxy is False or proxy is None:
+				raise Exception("NO PROXY?",tid,proxyid,proxy)			
+			elif proxy is True:
 				pass
 			else:
 				(ip,port,) = re.search(r"(\d*\.\d*\.\d*\.\d*)\:(\d+)",proxy).groups()
