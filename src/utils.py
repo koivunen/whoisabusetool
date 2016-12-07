@@ -16,7 +16,7 @@ def IP(var):
 	return netaddr.IPAddress(var)
 
 def FormatShortError(exc):
-	return "".join(traceback.format_exception(None, exc, exc.__traceback__,chain=False,limit=4))
+	return "".join(traceback.format_exception(None, exc, exc.__traceback__,chain=True))
 		
 def IsPublicIP(ip):
 	bad = False
