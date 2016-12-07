@@ -80,21 +80,21 @@ def continueProcessing():
 			ip = IP(req['ip'])
 			legacy_reply = req.get('legacy')
 			
-			sys.stdout.write(legacy_reply and '|' or "-")
+			sys.stdout.write(legacy_reply and '^' or "-")
 			sys.stdout.flush()
 			
 			# We have a response
 			if reply==True:
-				# Push again
+				# Push again, try later, preferably much later, or by some other worker-proxy
 					
 				sys.stdout.write(">")
 				sys.stdout.flush()
 				queries_pending.append(req)
 				
 			elif reply:
-				
 				quality = legacy_reply and 2 or 1
 				(abuseemails,(startip,endip)) = legacy_reply and process_whois_abuse(reply) or process_rdap_abuse(reply)
+				#print(legacy_reply and "LEGACY" or "RDAP",abuseemails,startip,endip)
 				# one IP network is a possibility
 				networkid = db.get_network(startip or ip, endip or ip, ip)
 				db.add_network_abusemails(networkid,abuseemails,[quality]*len(abuseemails))
@@ -102,7 +102,8 @@ def continueProcessing():
 
 				if len(abuseemails)==0:
 					query_legacy = True
-					print("no emails found",req)
+					if legacy_reply:
+						print("no emails found",req)
 			
 			# Worker failed (any reason)
 			else:
@@ -117,9 +118,10 @@ def continueProcessing():
 			
 				
 			if query_legacy and not legacy_reply:
-				print("LEGACY QUERYING",ip)
-				if reply:
-					pprint.pprint(reply)
+				
+				sys.stdout.write("~")
+				sys.stdout.flush()
+				
 				req['legacy'] = True
 				# Add to queries again
 				queries_pending.append(req)
@@ -162,13 +164,46 @@ def continueProcessing():
 	
 def dumpAll(processedOnly=False):
 	for r in db.dump_all():
-		(ip,e1,e2,e3) = r
-		if not processedOnly or e1 is not None:
-			extra = e1 or "Unprocessed"
-			ip = IP(ip)
-			if ip.is_ipv4_mapped():
-				ip = ip.ipv4()
-			print( "%s%s" % ( str(ip), extra and (" %s")%(extra) or "" ) )
+		(ip,networkid,failurereason,
+			e1,e2,e3,q1,startip,endip,*rest) = r
+		
+		
+		processed = networkid is not None
+				
+		ip = IP(ip)
+		if ip.is_ipv4_mapped():
+			ip = ip.ipv4()
+		out = [ str(ip) ]
+		if not processedOnly or processed:
+			
+			if not processed:
+				out += ["UNPROCESSED"]
+			else:
+				if failurereason or networkid==-1:
+					assert(failurereason)
+					assert(networkid==-1)
+					out += ["FAIL"]
+				else:
+					if not q1:
+						pass
+					elif q1==1:
+						out += ["RDAP"]
+					elif q1==2:
+						out += ["WHOIS"]
+					else:
+						out += ["???"]
+				
+				#out += emaillist
+				if e1:
+					out += [e1]
+				if e2:
+					out += [e2]
+				if e3:
+					out += [e3]
+				if not e1 and not e2 and not e3:
+					out += ["NOMAILS"]
+					
+			print( " ".join(out) )
 
 			
 cmd=len(sys.argv)>1 and sys.argv[1]
