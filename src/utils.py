@@ -1,6 +1,5 @@
 from multiprocessing import Pool, TimeoutError
 import fileinput
-import csv
 import sys
 import sqlite3
 import re
