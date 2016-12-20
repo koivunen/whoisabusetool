@@ -50,6 +50,8 @@ def addAddresses():
 
 def continueProcessing():
 	
+	SPEEDUP_TWEAK=8
+	
 	import whoiser
 	whoiser.start()
 	
@@ -89,6 +91,9 @@ def continueProcessing():
 					
 				sys.stdout.write(">")
 				sys.stdout.flush()
+				
+				thread.sleep(5) # exhaust workers for a while. TODO: real rate limiting per proxy
+				
 				queries_pending.append(req)
 				
 			elif reply:
@@ -130,9 +135,13 @@ def continueProcessing():
 			
 			
 		# Get more queries if they do not exist in pending
-		if len(queries_pending)<6:
+		if len(queries_pending)<SPEEDUP_TWEAK:
+		
 			row = unprocessed_ips.fetchone()
 			if row:
+
+				
+
 				(ip,) = row
 				ip = IP(ip)
 				networkid = db.network_from_ip(ip)
@@ -140,6 +149,8 @@ def continueProcessing():
 				#TODO: Loop if we didn't query stuff
 				if networkid and db.network_has_mails_processed(networkid):
 					db.ip_set_network(ip,networkid)
+					sys.stdout.write("'")
+					sys.stdout.flush()
 					req_unsent+=1
 				else:
 					queries_pending.append({"ip": ip })

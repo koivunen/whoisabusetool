@@ -22,13 +22,19 @@ sqlite3.register_adapter(netaddr.IPAddress,ipaddr2sqlite)
 
 sqlite3.register_converter("blobip", BLOB2IP)
 
-conn = sqlite3.connect(__name__ == "__main__" and ":memory:" or 'state.db',detect_types=sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES)
+conn = sqlite3.connect(	__name__ == "__main__" 
+							and ":memory:" or 'state.db',
+						detect_types=sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES)
 
+						
 def commit():
 	conn.commit()
 
 conn.executescript('''
 
+PRAGMA vacuum;
+PRAGMA foreign_keys=ON;
+PRAGMA journal_mode=WAL;
 
 CREATE TABLE IF NOT EXISTS "ips" (
 	`ip`			blobip NOT NULL UNIQUE,
@@ -157,15 +163,17 @@ def get_unprocessed(random_order=False):
 	return conn.execute("""SELECT ip FROM ips WHERE networkid IS NULL""")
 
 def network_has_mails_processed(networkid):
-	res = conn.execute("""SELECT e1 FROM abuse_emails WHERE networkid = ? LIMIT 1""",(networkid,))
+	res = conn.execute("""SELECT * FROM abuse_emails WHERE networkid = ? LIMIT 1""",(networkid,))
 	if not res:
 		return False
 	res = res.fetchone()
 	if not res:
 		return False
-	(e1,) = res
-	if e1 is None:
-		return False
+	# ???
+	#(e1,) = res
+	#if e1 is None:
+	#	return False
+	return True
 	
 def clear_failed_ips():
 	return conn.execute("""UPDATE ips SET networkid=NULL,failurereason=NULL WHERE networkid=-1""")
