@@ -1,9 +1,18 @@
 # whoisabusetool
-Processes list of IPs and tries to figure out abuse email(s) for them
+Processes list of IPs and tries to figure out abuse email(s) for them. 
 
-Done as part of a research project for [University of Turku](http://utu.fi)
+Done as part of a research project for the [Department of Information Technology](http://www.utu.fi/en/units/sci/units/it/Pages/home.aspx) of [University of Turku](http://utu.fi)
 
-Work In Progress
+
+Work In Progress, but has been tested with 10000+ IPs and 3 proxies.
+
+
+
+### Usage
+
+ - Install dependencies below
+ - Set up proxy servers and add them to config.py
+ - See below
 
 ```
 $ python3 whoisabuse.py
@@ -16,7 +25,10 @@ Usage:
 
 ```
 
+
+
 ### Example 
+
 ```
 $ echo 192.30.253.113 | python whoisabuse.py add
 IPs added (1, 1) Bad IPs: 0
@@ -32,7 +44,25 @@ $ python whoisabuse.py dump
 ```
 
 ### Dependencies
-```
+
+```bash
 pip install --upgrade ipwhois
 pip install netaddr
 ```
+
+You also need 3+ proxies to efficiently query the databases.
+
+
+### TODO
+
+ - Add timestamps!
+ - Optimize CPU usage and database queries
+ - Normalize email database
+ - Allow choosing maximum network size
+ - Improve error logging
+ - Improve proxying system
+
+### Bugs
+
+ - Possibly many, work in progress
+ 
