@@ -65,10 +65,10 @@ def continueProcessing():
 	req_legacy = 0
 	exhaust_print=False
 	
-	first=True
-	while not whoiser.done() or len(queries_pending)>0 or first:
-		if first:
-			first=False
+	retry=True
+	while not whoiser.done() or len(queries_pending)>0 or retry:
+		if retry:
+			retry=False
 		
 		# Responses from worker threads
 		resp = whoiser.response(timeout=0.01)
@@ -92,7 +92,7 @@ def continueProcessing():
 				sys.stdout.write(">")
 				sys.stdout.flush()
 				
-				thread.sleep(5) # exhaust workers for a while. TODO: real rate limiting per proxy
+				time.sleep(5) # exhaust workers for a while. TODO: real rate limiting per proxy
 				
 				queries_pending.append(req)
 				
@@ -152,6 +152,7 @@ def continueProcessing():
 					sys.stdout.write("'")
 					sys.stdout.flush()
 					req_unsent+=1
+					retry = True
 				else:
 					queries_pending.append({"ip": ip })
 				sys.stdout.write("_")
@@ -172,7 +173,29 @@ def continueProcessing():
 			
 	print("Processing finished. Requests: {} Replies: {} instant, {} by whoiser".format(
 									req_sent,	req_unsent,		resp_recv	))
-	
+def dumpFailed():
+	for r in db.dump_all():
+		(ip,networkid,failurereason,
+			e1,e2,e3,q1,startip,endip,*rest) = r
+		
+		
+		processed = networkid is not None
+				
+		ip = IP(ip)
+		if ip.is_ipv4_mapped():
+			ip = ip.ipv4()
+		out = [ "\n\n\n", str(ip), "\n" ]
+		
+
+		if failurereason or networkid==-1:
+			assert(failurereason)
+			assert(networkid==-1)
+			
+			out += ["    ",failurereason.replace('\n', '\n    ')]
+			
+			print( "".join(out) )
+
+			
 def dumpAll(processedOnly=False):
 	for r in db.dump_all():
 		(ip,networkid,failurereason,
@@ -224,6 +247,8 @@ elif cmd=="process":
 	continueProcessing()
 elif cmd=="dump":
 	dumpAll()
+elif cmd=="dump-failed":
+	dumpFailed()
 elif cmd=="process-failed":
 	db.clear_failed_ips()
 	continueProcessing()
